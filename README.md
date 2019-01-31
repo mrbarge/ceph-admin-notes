@@ -131,3 +131,111 @@ Run the playbook:
 ansible-playbook -i /path/to/inventory site.yml
 ```
 
+## Storage Management
+
+### Creating a replicated storage pool
+
+```
+ceph osd pool create <name> <# pgs> <# effective pgs>
+```
+
+> *Relevant Configuration Parameters*
+> * `osd_pool_default_size` (number of replicas)
+> * `osd_pool_default_min_size` (number of object copies)
+
+### Creating an erasure-coded pool
+
+Use the `erasure` argument at the end of the pool creation command:
+```
+ceph osd pool create <name> <# pgs> <# effective pgs> erasure <profile>
+```
+
+Erasure code profiles can be viewed and customized:
+
+```
+ceph osd erasure-code-profile ls
+ceph osd erasure-code-profile get <profile>
+ceph osd erasure-code-profile set <parameter> <value>
+```
+
+Example:
+```
+ceph osd erasure-code-profile set mynewprofile k=5 m=3
+ceph osd pool create newpool 12 12 erasure mynewprofile
+```
+
+### Setting pool applications
+
+```
+ceph osd pool application enable <pool> <app name>
+```
+
+Valid application choices are:
+
+| application name | desc                        |
+|----------------- | --------------------------- |
+| cephfs           | Ceph file system            |
+| rbd              | Ceph block device           |
+| rgw              | Object gateway              |
+
+## Monitoring and Management
+
+### System configuration
+
+Useful files:
+
+* `/usr/share/ceph-ansible/group_vars/all.yml` (on Ansible deploy host)
+* `/etc/sysconfig/ceph`
+* `/etc/ceph/ceph.conf`
+
+Update the `ceph_conf_overrides` section of the Ansible groupvars to set config items.
+
+Pulling live config:
+
+```
+ceph daemon <type>.<id> config show
+```
+
+### Pools
+
+#### Configuration changes
+
+View:
+```
+ceph osd pool get <pool> all
+```
+
+Set:
+```
+ceph osd pool set <pool> <config item> <value>
+```
+
+
+#### Statistics
+
+**Displaying pools**: ```ceph osd lspools```
+**Disk free**: ```ceph df```
+**IO Stats**: ```ceph osd pool stats```
+
+#### Quota
+
+```
+ceph osd pool set-quota <pool> max_objects <number>
+```
+> 0 = unlimited
+
+#### Snapshots
+
+Snapshots can be used to retrieve or restore a historic version of object from the pool at the time the snapshot was taken:
+
+```
+ceph osd pool <command>
+```
+* `mksnap`
+* `rmsnap`
+
+```
+rados -p <pool> -s <snapshot> get <object> <file>
+rados -p <pool> rollback <object> <snapshot>
+```
+
