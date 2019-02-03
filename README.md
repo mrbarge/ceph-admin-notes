@@ -102,6 +102,69 @@ services:
 
 ## Cluster Administration
 
+### Authentication and Authorization
+
+#### Viewing or interrogating user configuration
+
+Listing users:
+```
+ceph auth list
+client.openstack
+  key: abc123
+  caps: [osd] allow *
+```
+
+Showing a user:
+```
+ceph auth get client.openstack
+```
+
+Dumping a user config to file:
+```
+ceph auth export client.openstack > client.openstack.cfg
+```
+
+#### Creating users
+A user and their roles are created as follows:
+
+```
+ceph auth get-or-create <user> mon '<perms>' osd '<perms> -o /path/to/keyring'
+```
+
+* Permissions can specify specific read/write permissions, or defer to a profile. (`allow rw`)
+* Permissions can be restricted to specific pools or namespaces. (`allow rw pool=mypool namespace=blah`) (_Specify pool before namespace_) 
+* Permissions can be restricted to specific object name prefixes. (`allow rw object_prefix hello`)
+* Permissions can be restricted to CephFS paths (`allow rw path=/data`)
+* Permissions can be restricted to specific monitor commands (`allow command "osd lspools"`)
+
+Example:
+
+```
+ceph auth get-or-create client.application \
+   osd 'allow rw pool=app' mon 'profile appprofile' \
+   -o /etc/ceph/ceph.client.application.keyring
+```
+
+Permissions can be updated after the fact with `ceph auth caps`:
+
+```
+ceph auth caps client.application mon 'allow r' osd 'allow rw pool=blah object_prefix hello'
+```
+
+The user can be supplied to ceph commands using the `--id` argument:
+
+```
+ceph --id client.application health
+rados --id application -p mypool ls
+```
+
+#### Deleting users
+
+```
+ceph auth del client.openstack
+rm /etc/ceph/ceph.client.openstack.keyring
+```
+
 ### Scale-out / Adding more OSDs
 
 Update the inventory used for installation and add the new OSDs:
@@ -160,8 +223,16 @@ ceph osd erasure-code-profile set <parameter> <value>
 
 Example:
 ```
-ceph osd erasure-code-profile set mynewprofile k=5 m=3
-ceph osd pool create newpool 12 12 erasure mynewprofile
+[ceph@host ~$] ceph osd erasure-code-profile set newprofile k=5 m=3
+[ceph@host ~$] ceph osd erasure-code-profile ls
+default
+ceph125
+newprofile
+[ceph@host ~$] ceph osd erasure-code-profile get newprofile
+k=5
+m=3
+...
+[ceph@host ~$] ceph osd pool create mypool 32 erasure newprofile
 ```
 
 ### Setting pool applications
@@ -194,6 +265,12 @@ Pulling live config:
 
 ```
 ceph daemon <type>.<id> config show
+```
+
+#### Pulling config parameters
+
+```
+ceph daemon mon.server config get <parameter>
 ```
 
 ### Pools
