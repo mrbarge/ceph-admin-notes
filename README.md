@@ -316,3 +316,110 @@ rados -p <pool> -s <snapshot> get <object> <file>
 rados -p <pool> rollback <object> <snapshot>
 ```
 
+## Rados Block Device / Block Storage
+
+### Pre-requisites
+
+Create a pool and enable rbd
+
+```
+ceph osd pool create mypool <parms>
+ceph osd pool application enable rbd
+rbd pool init mypool
+```
+
+### Image management
+
+Mapping and unmapping as a service device:
+
+```
+[root@server ~] rbd map rbd/imagename
+/dev/rbd0
+
+[root@server ~] rbd showmapped
+id pool image snap device
+0  rbd  imagename - /dev/rbd0
+
+[root@server ~] rbd unmap /dev/rbd0
+```
+
+Customizing:
+
+```
+rbd feature enable rbd/imagename <feature>
+```
+
+Snapshotting:
+
+```
+rbd snap create mypool/imagename@snapname
+rbd snap protect mypool/imagename@snapname
+rbd clone mypool/imagename@snapname mypool/imageclonename
+rbd flatten mypool/imageclonename
+```
+
+### Caching
+
+Caching is configured in the `[client]` section of `/etc/ceph/ceph.conf`:
+
+| parameter | meaning |
+|---------- | ------- |
+| rbd_cache | Enable caching (true/false) |
+| rbd_cache_size | cache size in bytes |
+| rbd_cache_writethough_until_flush | Write-though caching until first flush (True/false) |
+
+### iSCSI 
+
+#### Gateway Setup
+
+Enable via Ansible:
+```
+[iscsi-gws]
+host1
+host2
+```
+
+Set the `group_vars/iscsi-gws.yml`:
+
+```
+---
+gateway_iqn: "<shared GW IQN>"
+gateway_ip_list: "<comma-separated-IPs>"
+
+# override if cluster name is not default
+cluster_name: prod
+
+# must be set for the first play run
+perform_system_checks: True
+
+# Images to export via iSCSI
+rbd_devices:
+  - { pool: '<pool name>', image: '<image name>', size: '<image size>', host: '<iSCSI GW host>', state: 'present' }
+  
+client_connections:
+  - { client: '<client iqn>', image_list: '<poolname>.<imagename>'', chap: '<user>/<pass>', status: 'present' }
+```
+
+After deployment, enable and start the service on the gateway hosts, `rbd-target-api` and `rbd-target-gw`
+
+#### Initiator Setup
+
+
+
+## Multi-cluster Administration
+
+### RBD Mirroring
+
+> Each cluster must have a unique name.  For example, if both clusters are named _ceph_ this won't work.
+
+Steps:
+* (For both clusters) Create a dedicated mirroring user with appropriate permissions to access the pool to be mirrored.
+* (For both clusters) Distribute the cluster config (`/etc/ceph/<clustername>.conf`) to its peer.
+* (For both clusters) Distribute the mirror user's keyring to its peer.
+
+On the passive cluster:
+* `yum install rbd-mirror` 
+* `systemctl enable ceph-rbd-mirror.target --now`
+* `rbd mirror pool enable rbd pool --cluster <passive cluster>`
+* `rbd mirror pool enable rbd pool --cluster <active cluster>`
+* `rbd mirror pool peer add rbd <mirror user>@<active cluster> --cluster <passive cluster>`
