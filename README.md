@@ -330,7 +330,7 @@ rbd pool init mypool
 
 ### Image management
 
-Mapping and unmapping as a service device:
+#### Mapping and unmapping as a service device:
 
 ```
 [root@server ~] rbd map rbd/imagename
@@ -343,19 +343,37 @@ id pool image snap device
 [root@server ~] rbd unmap /dev/rbd0
 ```
 
-Customizing:
+#### Customizing:
 
 ```
 rbd feature enable rbd/imagename <feature>
 ```
 
-Snapshotting:
+#### Snapshotting:
 
 ```
 rbd snap create mypool/imagename@snapname
 rbd snap protect mypool/imagename@snapname
 rbd clone mypool/imagename@snapname mypool/imageclonename
 rbd flatten mypool/imageclonename
+```
+
+#### Exporting and Importing
+
+```
+rbd export <image/snapshot> <path>
+rbd import <path> <image>
+```
+
+Detecting changes between exports:
+```
+rbd-export-diff --from-snap <snap> <image>
+rbd-export-diff  <image> <path>
+```
+
+Using it as an image transfer channel:
+```
+cat <image> | ssh <server> rbd import - <image>
 ```
 
 ### Caching
@@ -402,9 +420,46 @@ client_connections:
 
 After deployment, enable and start the service on the gateway hosts, `rbd-target-api` and `rbd-target-gw`
 
+Setup health monitoring with:
+```
+yum install ceph-iscsi-tools
+systemctl enable pmcd
+/var/lib/pcp/pmdas/ilo/Install
+gwtop
+```
+
 #### Initiator Setup
 
+* Install the `iscsi-initiator-utils` package.
+* Install the `device-mapper-multipath` package.
+* Enable multipath
 
+```
+mpathconf --enable --with_multipathd y
+cat << EOF >> /etc/multipath.conf
+devices {
+  device {
+    vendor "LIO-ORG"
+    hardware_handler "1 alua"
+    path_grouping_policy "failover"
+    path_selector "queue-length 0"
+    failback 60
+    path_checker tur
+    prio alua
+    prio_args exclusive_pref_bit
+    fast_io_fail_tmo 25
+    no_path_retry queue
+  }
+}
+systemctl restart multipathd
+```
+* Update auth credentials in `/etc/iscsi/iscsid.conf`
+* iSCSI discovery and attachment:
+
+```
+iscsiadm -m discovery -t -p <agteway ip>
+iscsiadm -m node -T <gateway iqn> -l
+```
 
 ## Multi-cluster Administration
 
