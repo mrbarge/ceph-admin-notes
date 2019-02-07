@@ -507,3 +507,29 @@ Define global group_vars if required:
 | radosgw_frontend | `civetweb` for civetweb-fronted interface |
 | ceph_conf_overrides::client.rgw.<host>::rgw_dns_name | fqdn used for url |
 
+### User Setup
+
+Creation:
+
+```
+radosgw-admin user create --uid=<user> --display-name="User" \
+  [ --access-key=<AWS key> --secret=<AWS secret> ]
+```
+
+Quotas:
+
+* `radosgw-admin user info --uid=<user uid>`
+* `radosgw-admin user stats --uid=<user uid>`
+* `radosgw-admin usage show --show-log-entries=false`
+
+### Driving S3 API
+
+Use `s3cmd` for bucket/object actions:
+
+* Creation of bucket: `s3cmd mb s3://bucketname`
+* Putting object (public): `s3cmd put --acl-public myfile s3://bucketname/objectname`
+
+Set policy with `s3cmd setpolicy`:
+
+* `s3cmd setpolicy mypolicy s3://bucketname`
+
