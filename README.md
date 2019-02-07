@@ -478,3 +478,32 @@ On the passive cluster:
 * `rbd mirror pool enable rbd pool --cluster <passive cluster>`
 * `rbd mirror pool enable rbd pool --cluster <active cluster>`
 * `rbd mirror pool peer add rbd <mirror user>@<active cluster> --cluster <passive cluster>`
+
+## RADOS Gateway / Object Storage
+
+### Installation
+
+Define hosts in the Ansible inventory:
+
+```
+[rgws]
+rgwhost1
+...
+```
+
+Define `rgws` group_vars:
+```
+# Distributes the admin key to the RGWs
+copy_admin_key: true
+```
+
+Define global group_vars if required:
+
+| variable | definition |
+| -------- | ---------- |
+| fetch_directory | cluster dir |
+| rados_civetweb_port | Civetweb port (default 7480) |
+| radosgw_interface | Host network interface to listen on |
+| radosgw_frontend | `civetweb` for civetweb-fronted interface |
+| ceph_conf_overrides::client.rgw.<host>::rgw_dns_name | fqdn used for url |
+
