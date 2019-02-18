@@ -522,6 +522,12 @@ Quotas:
 * `radosgw-admin user stats --uid=<user uid>`
 * `radosgw-admin usage show --show-log-entries=false`
 
+Subusers:
+
+```
+radosgw-admin subuser create --uid=<user> --subuser=<user>:<subuser> --access=full
+```
+
 ### Driving S3 API
 
 Use `s3cmd` for bucket/object actions:
@@ -533,3 +539,59 @@ Set policy with `s3cmd setpolicy`:
 
 * `s3cmd setpolicy mypolicy s3://bucketname`
 
+### Integrating OpenStack
+
+OpenStack swift users map from `<tenant>:<user>` to Ceph's `<user>:<subuser>`.
+
+In addition to creating a dedicated subuser, create a key with the `--keytype` of `swift`:
+
+```
+radosgw-admin key create --subuser=<suer>:swift --key-type=swift
+```
+
+The `rgw_swift_versioning_enabled` option must be set in `/etc/ceph.conf` to enable Swift's object versioning.
+
+The user can be validated by installing the `python-swiftclient` package:
+
+```
+yum install python-swiftclient
+swift -V 1.0 -A http://$SERVER/auth/v1 -U <user>:<subuser> -K <secret> stat
+```
+
+### Multi-zoned
+
+Primary:
+```
+radosgw-admin realm create --default --rgw-realm=<name>
+radosgw-admin zonegroup create --rgw-zonegroup=us --master \
+  --default --endpoints=http://localhost:8000
+radosgw-admin zone create --rgw-zone=<primary region> --master \
+  --rgw-zonegroup=us --endpoints http://localhost:8000
+  --access-key=<key> --secret=<secret> --default
+radosgw-admin user create --uid=<user> --display-name="User" \
+  --access-key=<key> --secret=<secret> --system
+radosgw-admin period update --commit
+systemctl restart ceph-radosgw@*
+```
+
+Secondary:
+```
+radosgw-admin realm pull --rgw-realm=<name> --url=http://localhost:8000 \
+  --access-key=<key> --secret=<secret> --default
+radosgw-admin period pull --url=http://localhost:8000 \
+  --access-key=<key> --secret=<secret> --default
+radosgw-admin zone create --rgw-zone=<secondary region> --rgw-zonegroup=us \
+  --endpoints=http://localhost:8001 --access-key=<key> \
+  --secret=<secret> --default
+radosgw-admin period update --commit
+systemctl restart ceph-radosgw@*
+```
+
+Failover to secondary:
+
+```
+# On Primary..
+radosgw-admin zone modify --master --rgw-zone=<secondary region>
+radosgw-admin zonegroup modify --rgw-zonegroup=us --endpoints=http://localhost:8001
+radosgw-admin period update --commit
+```
