@@ -530,7 +530,21 @@ radosgw-admin subuser create --uid=<user> --subuser=<user>:<subuser> --access=fu
 
 ### Driving S3 API
 
+Setup `dnsmasq` on cclient machine in order to do correct S3 object name resolution:
+
+`/etc/dnsmasq.d/ceph.conf`
+```
+address=/.HOST/IP
+```
+
+Pre-configure the S3 
 Use `s3cmd` for bucket/object actions:
+
+```
+yum install s3cmd
+s3cmd --configure
+# edit host_base and host_bucket in the generated $HOME/.s3cfg
+```
 
 * Creation of bucket: `s3cmd mb s3://bucketname`
 * Putting object (public): `s3cmd put --acl-public myfile s3://bucketname/objectname`
@@ -594,4 +608,44 @@ Failover to secondary:
 radosgw-admin zone modify --master --rgw-zone=<secondary region>
 radosgw-admin zonegroup modify --rgw-zonegroup=us --endpoints=http://localhost:8001
 radosgw-admin period update --commit
+```
+
+#### Walkthrough
+
+Primary:
+```
+# create realm
+radosgw-admin realm create --rgw-realm=X --default
+# delete existing default zonegroup
+radosgw-admin zonegroup delete --rgw-zonegroup=default
+# Create the new zonegroup
+radosgw-admin zonegroup create --rgw-zonegroup=Y --endpoints=http://$HOST:80 --master --default
+# create new zone
+radosgw-admin zone create --rgw-zonegroup=Y --rgw-zone=Z --endpoints=http://$HOST:80 \
+  --access-key=abc123 --secret=def456
+# create replication user
+radosgw-admin user create --uid="$USER" --display-name="$USERNAME" --access-key=abc123 \
+  --secret=def456 --system
+# commit realm structure
+radosgw-admin period update --commit
+# set the zone in /etc/ceph/ceph.conf
+# add rgw_zone = Z
+# disable resharding for multisite
+# add rgw_dynamic_resharding = false
+systemctl restart ceph-radosgw@*
+```
+
+Secondary:
+```
+radosgw-admin realm pull --url=http://$HOST:80 \
+  --access-key=abc123 --secret=def456
+radosgw-admin period pull --url=http://$HOST:80 \
+  --access-key=abc123 --secret=def456
+radosgw-admin zone create --rgw-zonegroup=classroom --rgw-zone=Z2 \
+  --endpoints=http://$HOST:80 --access-key=abc123 --secret=def456 --default  
+radosgw-admin period update --commit --rgw-zone=Z2
+# set the zone in /etc/ceph/ceph.conf
+# add rgw_zone = Z2
+# disable dynamic resharding as per primary
+systemctl restart ceph-radosgw@*
 ```
