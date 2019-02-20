@@ -649,3 +649,131 @@ radosgw-admin period update --commit --rgw-zone=Z2
 # disable dynamic resharding as per primary
 systemctl restart ceph-radosgw@*
 ```
+
+## CephFS
+
+### Installation
+
+Define hosts in the Ansible inventory for the Metadata Server:
+
+```
+[mdss]
+mdshost1
+...
+```
+
+Define `mdss` group_vars:
+```
+# Distributes the admin key to the MDSs
+copy_admin_key: true
+```
+
+Define global group_vars if required:
+
+| variable | definition |
+| -------- | ---------- |
+| fetch_directory | cluster dir |
+
+Launch the play:
+
+```
+ansible-playbook site.yml --limit mdss
+```
+
+### Managing filesystems
+
+#### Initialisation 
+
+Creating a CephFS filesystem:
+
+```
+# the following parameters are defaults created during playbook run
+ceph fs new cephfs cephfs_metadata cephfs_data
+```
+
+Preparing a host for CephFS filesystem use:
+
+* Install `ceph-common`
+* Distribute `ceph.conf` to the host from the cluster.
+* Install the appropriate key for FUSE or kernel
+
+#### Mounting (FUSE)
+
+Manually mounting a CephFS filesystem (FUSE):
+
+```
+ceph-fuse -m monhost /mnt/fs
+fusermount -u /mnt/fs
+```
+
+`/etc/fstab` equivalent:
+
+```
+none /mnt/fs fuse.ceph _netdev 0 0
+```
+
+#### Mounting (kernel)
+
+```
+mount -t ceph monhost:/ /mnt/fs
+# optionally, mount a subdir
+mount -t ceph monhost:/data /mnt/fs
+```
+
+`/etc/fstab` equivalent:
+
+```
+monhost:/ /mnt/fs ceph name=<cephx user>,secretfile=<secret key path>,_netdev 0 0
+```
+
+### Debugging (from a client)
+
+#### Mapping file to object
+
+```
+INODE=`stat -c %i /myfile`
+INODE_HEX=`printf '%x\n' $INODE`
+RADOS_OBJ=`rados -p cephfs_data ls | grep $INODE_HEX`
+ceph osd map cephfs_data $RADOS_OBJ
+```
+
+Will return format indicating:
+
+```
+osdmap <map epoch> pool '<pool>' (<pool id>) object \
+  '<RADOS object ID>' -> pg <placement group> -> <status> ([<osds>], <primary osd>)
+```
+
+#### Viewing extended ceph fileattributes
+
+```
+getfattr -d -m ceph.* <file/dir>
+```
+
+File attributes:
+* `ceph.file.layout.pool`
+* `ceph.file.layout.stripe_unit`
+* `ceph.file.layout.stripe_count`
+* `ceph.file.layout.object_size`
+* `ceph.file.layout.pool_namespace`
+
+Dir layout attributes:
+* `ceph.dir.layout.pool`
+* `ceph.dir.layout.stripe_unit`
+* `ceph.dir.layout.stripe_count`
+* `ceph.dir.layout.object_size`
+* `ceph.dir.layout.pool_namespace`
+
+Dir attributes:
+* `ceph.dir.entries` (descendents)
+* `ceph.dir.files` (num files in dir)
+* `ceph.dir.rbytes` (total file size in subtree)
+* `ceph.dir.rctime` (most recent create time)
+* `ceph.dir.rentries` (recursive descendents)
+* `ceph.dir.rfiles` (files in subtree)
+* `ceph.dir.rsubdirs` (dirs in subtree)
+* `ceph.dir.subdirs` (dirs in dir)
+
+Attributes can be changed with `setfattr`.
+
+
