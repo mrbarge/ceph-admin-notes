@@ -776,4 +776,77 @@ Dir attributes:
 
 Attributes can be changed with `setfattr`.
 
+## CRUSH Map
+
+* OSDs are organized into `buckets`.
+* `CRUSH rules` define how placement groups are assigned OSDs from buckets.
+
+Display the current CRUSH map hierachy:
+
+```
+ceph osd crush tree
+```
+
+Viewing CRUSH device classes (eg HDD, SSD):
+
+```ceph osd crush class ls```
+
+View CRUSH rules:
+
+```ceph osd crush rule ls```
+
+View a specific rule:
+
+```ceph osd crush rule dump <Rule>```
+
+Alternatively, retrieving and processing the raw dump:
+
+```
+ceph osd getcrushmap -o crushmap.dat
+crushtool -d crushmap.dat -o crushmap.txt
+```
+
+Interpreting a rule:
+
+* `min_size`: A pool must make at least this many replicas.
+* `max_size`: A pool should not make more than this many replicas
+* `step take <X>`: Begin iterating at this bucket hierachy.
+* `step chooseleaf firstn <X> type <Y>`: For buckets of type Y, select X many buckets (where X is either a number, or up to the pool's replica limit)
+
+### CRUSH Management
+
+Creating a bucket:
+
+```
+ceph osd crush add-bucket <name> <type>
+[ceph@host ~] ceph osd crush add-bucket USEast datacenter
+```
+
+Placing a bucket into the hierachy:
+
+```
+ceph osd crush move <name> <type>=<parent>
+[ceph@host ~] ceph osd crush move chassis4 rack=R34
+```
+
+Creating and using a rule:
+
+```
+ceph osd crush rule create-replicated <name> <starting-node> <replication-bucket-type> [<class>]
+ceph osd pool create <pool-name> <pgs> <effective-pgs> <CRUSH-rule>
+```
+
+### Placement groups
+
+There should be at least 1-2 orders of magnitude more PGs than OSDs.
+
+PG placement can be optimized with `osdmaptool`:
+
+```
+ceph osd getmap -o objmap
+osdmaptool objmap --test-map-pgs --pool <pool-ID>
+osdmaptool objmap --upmap pg-update-commands.txt --pool <pool-ID>
+cat pg-update-commands.txt
+```
+
 
