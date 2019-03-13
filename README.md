@@ -849,4 +849,140 @@ osdmaptool objmap --upmap pg-update-commands.txt --pool <pool-ID>
 cat pg-update-commands.txt
 ```
 
+## Cluster map
+
+Viewing the cluster maps:
+
+```
+ceph -s -f json-pretty
+```
+
+### Mon maps
+
+Used for tracking the ceph mons.
+* Has a leader, elected by quorum, which periodically renews the leadership lease.
+* If a peon does not response to lease renewal, a new leader quorum is held (initiated by leader)
+* If a peon does not get a new lease, a new leader quorum is held (initiated by peon)
+* Configurable via `mon_lease_*` in ceph config parameters.
+
+Acting on the monitor map via `monmaptool`:
+
+```
+# ceph mon dump                 (mon map to stdout)
+# ceph mon getmap -o <out-raw>  (mon map in raw form)
+# monmaptool --print <out-raw>  (mon map in viewable form)
+# monmaptool <out-raw> --rm <id>  (remove a mon)
+# monmaptool <out-raw> --add <id> <addr:port>  (add a mon)
+```
+
+### OSD maps
+
+Used for tracking the ceph OSDs.
+
+Acting on the OSD map with `osdmaptool`:
+
+```
+# ceph osd dump                 (osd map to stdout)
+# ceph osd getmap -o <map-raw>  (osd map in raw form)
+# osdmaptool --print <map-raw>  (osd map in viewable form)
+# osdmaptool --export-crush <crush-out> <map-raw> (extract crush map)
+# osdmaptool --import-crush <crus-in> <map-raw> (add crush map)
+```
+
+Acting on the crush map:
+
+```
+crushtool -d <crush-out> -o <decompiled-txt>
+crushtool -c <decompiled-txt> -o <compiled-bin>
+osdmaptool --import-crush <compiled-crush-bin> <map-raw>
+osdmaptool --test-map-pgs-dump <map-raw>
+```
+
+## Monitoring / Management
+
+### Cluster flags
+
+Set via `ceph osd set` and `ceph osd unset`:
+
+| flag | desc |
+| ---- | ---- |
+| noup | don't start OSDs as UP automatically - prevent flapping |
+| nodown | mark a stopping OSD as DOWN - prevent flapping |
+| noout | don't remove OSDs from CRUSH - use during maintenance to prevent rebalancing |
+| noin | mark an OSD as in |
+| norecover | prevent recovery ops from running - use during maintenance |
+| nobackfill | prevent backfill ops - use during maintenance |
+| noscrub | prevent scrubbing ops - use to prevent slow-scrubbing OSDs being marked as down |
+| nodeep-scrub | as above but for deep scrubbing |
+| norebalance | prevent rebalancing ops - use during maintenance |
+
+### Cluster parameters: OSDs
+
+* osd_heartbeat_interval
+* osd_heartbeat_grace
+* mon_osd_min_down_reporters (peers that must report OSD as down before mon agrees it is down)
+* mon_osd_min_down_reports (times that an OSD must be reported as down before mon agrees it is down)
+* osd_mon_report_interval_min
+* osd_mon_report_interval_max
+* osd_mon_heartbeat_interval
+* mon_osd_report_timeout
+
+### Troubleshooting
+
+#### HEALTH_WARN/ERR and OSDs are near capacity
+
+Triggered by hitting the `mon_osd_nearfull_ratio` or `mon_osd_full_ratio` parameter.
+
+Add OSDs or delete data.
+
+#### Learning Mon/OSD usage stats
+
+View all options for retrieving usage stats:
+
+```
+ceph daemon osd.<id> help
+ceph daemon mon.<host> help
+```
+
+
+#### OSD is both down and in
+
+Cluster gives a temporarily down OSD a chance to recover/rejoin to avoid scrubbing/rebalancing.
+
+After a timeout, OSD should switch to `down` and `out`, and PGs are migrated.
+
+#### PGs stuck in states
+
+* Stuck in `inactive` - peering issue
+* Stuck in `unclean` - can't recover from failure
+* Stuck in `stale` - no OSDs reporting - at least one of the OSDs need to be brought up
+* Stuck in `undersized` - not enough OSDs available.
+
+Viewing PG status:
+
+```
+ceph pg dump
+```
+
+#### Removing failed OSD
+
+* Verify state of OSD as `down` / `out`: ```ceph osd tree | grep <osd>```
+* Take the OSD out and stop its service:
+```
+ceph osd out <osd>
+systemctl stop ceph-osd@<id>.service
+```
+* Remove OSD from CRUSH: ```ceph osd crush remove osd.<id>```
+* Remove key rings for OSD: ```ceph auth del osd.<id>```
+* Remove the OSD: ```ceph osd rm osd.<id>```
+
+#### Establishing admin socket to mon/osd
+
+```
+ceph daemon <type>.<id> <command>
+
+or 
+
+ceph --admin-daemon <socket> <command>
+```
 
