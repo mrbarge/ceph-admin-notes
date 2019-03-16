@@ -976,6 +976,34 @@ systemctl stop ceph-osd@<id>.service
 * Remove key rings for OSD: ```ceph auth del osd.<id>```
 * Remove the OSD: ```ceph osd rm osd.<id>```
 
+#### Migrating an OSD journal to a new device
+
+```
+# prevent rebalancing
+ceph osd set noout
+
+# stop service
+systemctl stop ceph-osd@X.service
+
+# flush journal
+ceph-osd -i X --flush-journal
+
+# remove journal link
+rm -f /var/lib/ceph/osd/ceph-X/journal
+
+# soft-link to new device
+ln -s /dev/device /var/lib/ceph/osd/ceph-X/journal
+
+# create journal
+ceph-osd -i X --mkjournal
+
+# start service
+systemctl start ceph-osd@X.service
+
+# disable noout
+ceph osd unset noout
+```
+
 #### Establishing admin socket to mon/osd
 
 ```
@@ -986,3 +1014,74 @@ or
 ceph --admin-daemon <socket> <command>
 ```
 
+## Performance
+
+### OS Tuning
+
+Important `sysctl` parameters:
+
+* net.ipv4.tcp_{r,w}mem (buffer send/receive sizes: min, default and max)
+* net.ipv4.tcp_mem (tcp memory usage: low threshold, pressure start, max pages)
+* net.core_{r,w}mem_max (max buffer size for all connections)
+* vm.dirty_background_ratio (total dirty memory causing kernel to write out in background)
+* vm.dirty_ratio (total dirty memory causing a writing process to block during flush)
+
+Using `tuned` to automatically set up a performance profile:
+
+```
+# tuned-adm list
+# tuned-adm profile network-throughput
+# tuned-adm off
+```
+
+Per-device I/O scheduling methods are available at `/sys/block/<dev>/queue/scheduler`.
+* noop (fifo)
+* deadline (groups into read/write batches, best for large I/O ops)
+* cfq (large and small requests at once)
+
+Options for creating file-systems are configurable in `osd_mkfs_options_xfs` in ceph-ansible.
+
+Options for mounting file-systems are configurable in `osd_mount_options_xfs` in ceph-ansible.
+
+### Increasing per-pool PGs
+
+Update the number of PGS:
+```
+ceph osd pool set rbd pg_num <num>
+```
+
+Gradually increase number of current PGs until `pgp_num` == `pg_num` and cluster is rebalanced:
+```
+ceph osd pool set rbd pgp_num <num>
+```
+
+### Accessing metrics
+
+Use `ceph daemon <type>.<id> perf schema` to retrieve all possible metrics available.
+
+```
+ceph daemon osd.1 perf dump
+```
+
+Then, use `ceph daemon <type>.<id> perf dump` or `ceph osd pool stats <pool>` to retrieve values.
+
+The most recent processed operations can be retrieved with `ceph daemon <type>.<id> dump_historic_ops`. The following config options control this behaviour:
+* `osd_op_history_size`: max number of completed options to track
+* `osd_op_history_duration`: oldest op to track
+These can be changed with commands like the following: `ceph tell <type>.<id> injectargs '--osd_op_history_duration 60'`
+
+`ceph daemonperf <type>.<id>` displays performance stats for a particular daemon.
+
+### Stress-testing
+
+#### Object store
+
+```
+rados -p <pool> bench <seconds> write|seq|rand -b <default obj size> -t <concurrent ops>
+```
+
+#### Block devices
+
+```
+rbd -p <pool> bench <image> --io-type read|write [--io-size, --io-threads, --io-total, --io-pattern]
+```
