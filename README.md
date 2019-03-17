@@ -267,6 +267,20 @@ Pulling live config:
 ceph daemon <type>.<id> config show
 ```
 
+### Setting live configuration
+
+```
+ceph daemon <type>.<id> config set <parameter> <value>
+```
+
+### Sending command to daemon
+
+```
+ceph tell <type>.<id> <command> '<args>'
+```
+
+This also works with wildcards, eg `ceph tell osd.* injectargs '--myarg X'`
+
 #### Pulling config parameters
 
 ```
@@ -898,6 +912,26 @@ osdmaptool --import-crush <compiled-crush-bin> <map-raw>
 osdmaptool --test-map-pgs-dump <map-raw>
 ```
 
+## Client Troubleshooting
+
+#### RBD Performance
+
+Image creation options:
+* Increase the `stripe_count` config.
+* Align `stripe_unit` better with application needs.
+
+#### Debugging client
+
+* Set `debug_ms` to 1 in `/etc/ceph/ceph.conf`, or pass as a command-line flag (`--debug-ms=1`)
+* Enable an admin socket to retrieve immediate feedback to commands issued (`--admin-daemon /path/to/sock`)  (ie. pass config to running process such as `ceph --admin-daemon /blah set debug_ms 1`)
+* Verify the mon configuration in `/etc/ceph/ceph.conf` is correct.
+* Ensure `cephx` is wholly enabled or disabled.
+* Validate presence and permissions on keyring files.
+
+#### Debugging RADOS Gateway
+
+* Enable `rgw_enable_ops_log` and `rgw_enable_usage_log` config parameters for additional debugging.
+
 ## Monitoring / Management
 
 ### Cluster flags
@@ -927,7 +961,7 @@ Set via `ceph osd set` and `ceph osd unset`:
 * osd_mon_heartbeat_interval
 * mon_osd_report_timeout
 
-### Troubleshooting
+### Server Troubleshooting
 
 #### HEALTH_WARN/ERR and OSDs are near capacity
 
@@ -943,7 +977,6 @@ View all options for retrieving usage stats:
 ceph daemon osd.<id> help
 ceph daemon mon.<host> help
 ```
-
 
 #### OSD is both down and in
 
@@ -1085,3 +1118,41 @@ rados -p <pool> bench <seconds> write|seq|rand -b <default obj size> -t <concurr
 ```
 rbd -p <pool> bench <image> --io-type read|write [--io-size, --io-threads, --io-total, --io-pattern]
 ```
+### Filestore (pre-Luminous Cephs)
+
+Files in `/var/lib/ceph/osd` are split and merged with behaviour managed by the following config parameters:
+
+* `filterstore_merge_threshold` (min files per dir)
+* `filestore_split_multiple` (when splitting occurs)
+* `filestore_split_rand_factor` (controls randomization of splitting)
+
+
+### Scrubbing, backfill and recovery
+
+Controlled via:
+
+```
+ceph osd set noscrub
+ceph osd unset noscrub
+```
+
+Configurable via:
+
+| parameter | desc |
+| --------- | ---- |
+| `osd_scrub_(end,begin)_hour` | hour scrubbing begins/ends |
+| `osd_scrub_load_threshold` | scrub when load less than threshold> |
+| `osd_scrub_min_interval` | scrub no more than X seconds |
+| `osd_scrub_max_interval` | don't wait to scrub longer than X |
+| `osd_scrub_priority` | priority of scrub ops |
+| `osd_deep_scrub_interval` | interval between deep scrubs |
+| `osd_Scrub_sleep` | pause between deep scrub ops |
+
+Scrubbing stats are observable via `ceph pg dump`
+Scrubbing is intitiated via `ceph pg scrub`
+Deep-scrubbing is initiated via `ceph pg deep-scrub`
+
+Concurrent backfill ops are controlled via `osd_max_backfills`
+Concurrent recovery ops are controlled via `osd_recovery_max_active`
+Recovery priority is controlled via `osd_recoverY_op_priority`
+
