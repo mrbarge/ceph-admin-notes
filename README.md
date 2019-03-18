@@ -1156,3 +1156,205 @@ Concurrent backfill ops are controlled via `osd_max_backfills`
 Concurrent recovery ops are controlled via `osd_recovery_max_active`
 Recovery priority is controlled via `osd_recoverY_op_priority`
 
+## OpenStack integration
+
+### Glance
+
+#### Ceph user and auth setup 
+
+Create a dedicated ceph storage pool and enable RBD storage:
+
+```
+ceph osd pool create <pool> <pg nums>
+ceph osd pool application enable <pool> rbd
+```
+
+Create a cephx user for glance to use:
+
+```
+ceph auth get-or-create <user> mon 'profile rbd' \
+  osd 'profile rbd pool=<pool>' \
+  -o /etc/ceph/ceph.<user>.keyring
+```
+
+Add the user to a user-specific block in `/etc/ceph/ceph.conf`:
+
+```
+[<user>]
+keyring = /etc/ceph/ceph.<user>.keyring
+```
+
+Distribute this config and the keyring to all glance hosts and ensure the glance user will be able to read it:
+
+```
+sudo chgrp glance /etc/ceph/ceph.<user>.keyring
+sudo chmod 0640 /etc/ceph/ceph.<user>.keyring
+```
+
+#### Glance service config
+
+Set the following in `/etc/glance/glance-api.conf`:
+
+```
+[glance_store]
+default_store = rbd
+show_image_direct_url = True
+stores = rbd
+rbd_store_user = <user>
+rbd_store_pool = <pool>
+rbd_store_ceph_conf = /etc/ceph/ceph.conf
+rbd_Store_chunk_size = <num>
+```
+
+Restart the glance service:
+
+```
+sudo systemctl restart openstack-glance-api
+```
+
+Test an image push and then query it with rbd API:
+
+```
+openstack image create --container-format bare --disk-format raw --file test.img "Test"
+rbd --id <user> -p <pool> ls
+rbd --id <user> info <pool>/<image>
+```
+
+### Cinder
+
+#### Ceph user and auth setup
+
+Create a dedicated ceph storage pool:
+
+```
+ceph osd pool create <pool> <pg nums>
+ceph osd pool application enable <pool> rbd
+```
+
+Create a cephx user for cinder to use, it must also have read-only access to the glance pool:
+
+```
+ceph auth get-or-create <user> mon 'profile rbd' \
+  osd 'profile rbd pool=<cinder-pool>, profile rbd pool=<vm-pool>, profile rbd-read-only pool=<glance-pool>' \
+  -o /etc/ceph/ceph.<user>.keyring
+
+```
+
+Add the user to a user-specific block in `/etc/ceph/ceph.conf`:
+
+```
+[<user>]
+keyring = /etc/ceph/ceph.<user>.keyring
+```
+
+Distribute this config and the keyring to all glance hosts and ensure the glance user will be able to read it:
+
+```
+sudo chown cinder:cinder /etc/ceph/ceph.<user>.keyring
+sudo chmod 0640 /etc/ceph/ceph.<user>.keyring
+```
+
+#### Cinder service configuration
+
+Edit `/etc/cinder/cinder.conf` and set:
+
+```
+[DEFAULT]
+enabled_backends = ceph
+# comment out default_volume_type if set
+
+[ceph]
+rbd_ceph_conf=/etc/ceph/ceph.conf
+rbd_pool=<cinder-pool>
+rbd_secret_uuid=<uuid>
+rbd_user=<user>
+```
+(generate the UUID with `uuidgen`)
+
+Hypervisor libvirts must be updated via a file (eg. `/tmp/cephsecret`):
+```
+<secret ephemeral="no" private="no">
+  <uuid>$uuid</uuid>
+  <usage type="ceph">
+    <name>$user secret</name>
+  </usage>
+</secret>
+```
+
+Then: 
+
+```
+virsh secret-define --file /tmp/cephsecret
+virsh secret-set-value --secret <uuid> --base64 $(cat <keyring>)
+```
+
+Lastly restart the service:
+
+```
+systemctl restart openstack-cinder-api
+systemctl restart openstack-cinder-volume
+systemctl restart openstack-cinder-scheduler
+```
+
+#### Nova service config
+
+Edit `/etc/nova/nova.conf` and set:
+
+```
+[libvirt]
+libvirt_images_rbd_pool = <vm-pool>
+libvirt_iamges_rbd_ceph_conf = /etc/ceph/ceph.conf
+rbd_secret_uuid = <uuid>
+rbd_user = <user>
+```
+
+## Swift
+
+### Keystone setup
+
+Define a service and endpoint for the radosgw gateway:
+
+```
+openstack service create --name swift object-store
+openstack endpoint create --region <region> --publicurl "http://radosgw:8080/swift/v1" \
+  --adminurl "http://radosgw:8080/swift/v1" \
+  --internalurl "http://radosgw:8080/swift/v1"
+  swift
+```
+
+Set up the Rados GW to talk to ceph in `/etc/ceph/ceph.conf`:
+
+```
+[client.rgw.radosgw]
+rgw_keystore_url = http://keystore-host:35357
+rgw_keystore_admin_tenant = <keystone admin tenant>
+rgw_keystone_admin_user = <keystone admin user>
+rgw_keystone_admin_password = <keystone admin pass>
+# alternatively..
+rgw_keystone_admin_token = <token, obtained from /etc/keystore/keystone.conf>
+
+rgw_keystone_accepted_roles = admin member swiftoperator
+rgw_keystone_token_cache_size = 200
+rgw_keystone_revocation_interval = 300
+nss_db_path = /var/ceph/nss
+```
+
+Convert the keystone certs into NSS format:
+
+```
+mkdir /var/ceph/nss
+openssl x509 -in /etc/keystone/ssl/cert/ca.pem -pubkey | certutil -d /var/ceph/nss -A -n ca -t "TCu,Cu,Tuw"
+openssl x509 -in /etc/keystone/ssl/cert/signing_cert.pem -pubkey | certutil -d /var/ceph/nss -A -n signing_cert -t "Tcu,Cu,Tuw"
+```
+
+Then restart the Rados GW service: `sudo systemctl restart ceph-radosgw.target`
+
+Test swift:
+
+```
+swift -v stat
+swift -v list
+swift -v post <object>
+swift -v upload <object> <file>
+```
+
