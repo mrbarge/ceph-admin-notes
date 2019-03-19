@@ -1358,3 +1358,101 @@ swift -v post <object>
 swift -v upload <object> <file>
 ```
 
+## Notes
+
+**Installation**
+
+```
+# Install ceph-ansible
+yum install ceph-ansible -y
+
+cd /usr/share/ceph-ansible
+
+# Not essential...
+# Set log_path = /tmp/ansible.log
+# Set deprecation_warnings = false
+sudo vim ansible.cfg
+
+vim /etc/ansible/hosts
+```
+
+Define cluster hosts:
+```
+[mons]
+[mgrs]
+[osds]
+[clients]
+```
+
+Edit deployment play:
+```
+cp /usr/share/ceph-ansible/site.yml.sample /usr/share/ceph-ansible/site.yml
+vim /usr/share/ceph-ansible/site.yml
+
+# Set OSD installation to be serial
+# serial: 1
+```
+
+Set group vars:
+```
+sudo cp /usr/share/ceph-ansible/group_vars/all.yml.sample /usr/share/ceph-ansible/group_vars/all.yml
+vim /usr/share/ceph-ansible/group_vars/all.yml
+```
+
+Modifications:
+```
+ntp_service_enabled: false
+
+ceph_rhcs_version: "3"
+ceph_repository_type: cdn
+
+rbd_cache: "true"
+rbd_cache_writethrough_until_flush: "false"
+rbd_client_directories: false
+
+monitor_interface: <x>
+
+journal_size: 1024
+public_network: <x>
+cluster_network: "{{ public_network }}"
+
+ceph_conf_overrides:
+  global:
+    mon_allow_pool_delete: true
+    mon_osd_allow_primary_affinity: 1
+    mon_clock_drift_allowed: 0.5
+    osd_pool_default_size: 2
+    osd_pool_default_min_size: 1
+    mon_pg_warn_min_per_osd: 0
+  client:
+    rbd_default_features: 1
+```
+
+Set OSD vars:
+
+```
+sudo cp /usr/share/ceph-ansible/group_vars/osds.yml.sample /usr/share/ceph-ansible/group_vars/osds.yml
+vim /usr/share/ceph-ansible/group_vars/osds.yml
+```
+
+Define:
+```
+---
+devices:
+  - /dev/X
+  - /dev/Y
+  
+osd_scenario: "collocated"
+```
+
+Set up clients:
+
+```
+sudo cp /usr/share/ceph-ansible/group_vars/clients.yml.sample /usr/share/ceph-ansible/group_vars/clients.yml
+vim /usr/share/ceph-ansible/group_vars/clients.yml
+```
+
+Define:
+```
+copy_admin_key: true
+```
